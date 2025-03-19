@@ -1,0 +1,22 @@
+{
+    "name": "Interactive To-Do List",
+    "short_name": "To-Do List",
+    "description": "A simple To-Do list app with Firebase backend",
+    "start_url": "/",
+    "display": "standalone",
+    "background_color": "#ffffff",
+    "theme_color": "#4CAF50",
+    "icons": [
+      {
+        "src": "icon.png",
+        "sizes": "192x192",
+        "type": "image/png"
+      },
+      {
+        "src": "icon.png",
+        "sizes": "512x512",
+        "type": "image/png"
+      }
+    ]
+  }
+  
