@@ -8,25 +8,8 @@
     <script src="https://www.gstatic.com/firebasejs/9.0.2/firebase-firestore-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.0.2/firebase-auth-compat.js"></script>
     <!-- Firebase SDK -->
-   
     <script src="firebaseConfig.js"></script>
-    
     <link rel="stylesheet" href="style.css">
-    
-    <link rel="manifest" href="/manifest.json">
-    <script>
-      if ('serviceWorker' in navigator) {
-        window.addEventListener('load', () => {
-          navigator.serviceWorker.register('/service-worker.js')
-            .then((registration) => {
-              console.log('Service Worker registered with scope:', registration.scope);
-            })
-            .catch((error) => {
-              console.error('Service Worker registration failed:', error);
-            });
-        });
-      }
-    </script>
 </head>
 <body>
     <div class="todo-container">
@@ -37,9 +20,6 @@
         </div>
         <ul id="task-list"></ul>
     </div>
-
-   
-
     <!-- Include script after Firebase SDKs -->
     <script type="module" src="script.js"></script>
 </body>
