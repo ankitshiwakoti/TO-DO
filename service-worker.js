@@ -44,3 +44,15 @@ self.addEventListener('fetch', (event) => {
       })
   );
 });
+
+self.addEventListener('fetch', (event) => {
+    if (!navigator.onLine) {
+      event.respondWith(
+        caches.match(event.request)
+          .then((cachedResponse) => {
+            return cachedResponse || fetch(event.request);
+          })
+      );
+    }
+  });
+  
