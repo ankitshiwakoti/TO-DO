@@ -1,7 +1,8 @@
+// Firebase setup
 const db = firebase.firestore();
 
 // Enable offline persistence for Firestore
-firebase.firestore().enablePersistence()
+firebase.firestore().enablePersistence({ experimentalForceOwningTab: true })
   .catch((err) => {
     if (err.code === 'failed-precondition') {
       console.log("Offline persistence failed: multiple tabs open");
@@ -10,13 +11,15 @@ firebase.firestore().enablePersistence()
     }
   });
 
+// IndexedDB setup
 const idb = indexedDB.open('todo-db', 1);
 let idbStore;
 
 idb.onupgradeneeded = (event) => {
   const db = event.target.result;
   if (!db.objectStoreNames.contains('tasks')) {
-    db.createObjectStore('tasks', { keyPath: 'id', autoIncrement: true });
+    const store = db.createObjectStore('tasks', { keyPath: 'id', autoIncrement: true });
+    store.createIndex('task', 'task', { unique: false });
   }
 };
 
@@ -41,8 +44,8 @@ document.getElementById('add-task').addEventListener('click', async () => {
     };
 
     try {
-      // Store task in IndexedDB if offline
       if (!navigator.onLine) {
+        // Store task in IndexedDB if offline
         const tx = idbStore.transaction(['tasks'], 'readwrite');
         const store = tx.objectStore('tasks');
         store.add(task);
@@ -70,16 +73,16 @@ async function loadTasks() {
     const querySnapshot = await db.collection('tasks').get();
     querySnapshot.forEach((doc) => {
       const taskData = doc.data();
-      displayTask(taskData, doc.id); // Use Firebase task ID
+      displayTask(taskData, doc.id);
     });
   } else {
     // If offline, load from IndexedDB
     const tx = idbStore.transaction(['tasks'], 'readonly');
     const store = tx.objectStore('tasks');
     const allTasks = await store.getAll();
-
+    
     allTasks.forEach((task) => {
-      displayTask(task); // Display tasks from IndexedDB
+      displayTask(task);
     });
   }
 }
