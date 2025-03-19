@@ -1,7 +1,7 @@
 // Firebase setup
 const db = firebase.firestore();
 
-// Enable offline persistence for Firestore
+// Enable offline persistence for Firestore (for caching and syncing)
 firebase.firestore().enablePersistence({ experimentalForceOwningTab: true })
   .catch((err) => {
     if (err.code === 'failed-precondition') {
@@ -35,7 +35,7 @@ idb.onerror = (event) => {
   console.error('Error opening IndexedDB:', event.target.error);
 };
 
-// Add task and store in IndexedDB
+// Add task and store in IndexedDB (offline) or Firebase (online)
 document.getElementById('add-task').addEventListener('click', async () => {
   const taskInput = document.getElementById('new-task').value.trim();
 
@@ -104,15 +104,35 @@ function displayTask(taskData, taskId) {
 
   // Mark task as completed
   newTask.querySelector('.complete-btn').addEventListener('click', async () => {
-    await db.collection('tasks').doc(taskId).update({
-      completed: !taskData.completed,
-    });
+    if (navigator.onLine) {
+      await db.collection('tasks').doc(taskId).update({
+        completed: !taskData.completed,
+      });
+      console.log("Task marked as completed in Firebase");
+    } else {
+      // Update locally if offline
+      const tx = idbStore.transaction(['tasks'], 'readwrite');
+      const store = tx.objectStore('tasks');
+      const taskToUpdate = await store.get(taskId);
+      taskToUpdate.completed = !taskToUpdate.completed;
+      store.put(taskToUpdate);
+      console.log("Task marked as completed in IndexedDB");
+    }
     loadTasks(); // Reload the tasks
   });
 
   // Delete task
   newTask.querySelector('.delete-btn').addEventListener('click', async () => {
-    await db.collection('tasks').doc(taskId).delete();
+    if (navigator.onLine) {
+      await db.collection('tasks').doc(taskId).delete();
+      console.log("Task deleted from Firebase");
+    } else {
+      // Delete locally if offline
+      const tx = idbStore.transaction(['tasks'], 'readwrite');
+      const store = tx.objectStore('tasks');
+      store.delete(taskId);
+      console.log("Task deleted from IndexedDB");
+    }
     loadTasks(); // Reload the tasks
   });
 
@@ -148,6 +168,11 @@ async function syncOfflineTasks() {
 window.addEventListener('online', () => {
   console.log("You are back online!");
   syncOfflineTasks(); // Sync tasks when online
+});
+
+// Prevent showing "You're offline!" message
+window.addEventListener('offline', () => {
+  // Do nothing here, don't show any alert or message
 });
 
 // Load tasks when the page loads
