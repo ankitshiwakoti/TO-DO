@@ -17,9 +17,12 @@ let idbStore;
 
 idb.onupgradeneeded = (event) => {
   const db = event.target.result;
+
+  // If the tasks object store doesn't exist, create it
   if (!db.objectStoreNames.contains('tasks')) {
     const store = db.createObjectStore('tasks', { keyPath: 'id', autoIncrement: true });
     store.createIndex('task', 'task', { unique: false });
+    console.log("Created 'tasks' object store in IndexedDB");
   }
 };
 
