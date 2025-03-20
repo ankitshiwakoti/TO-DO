@@ -24,6 +24,7 @@ idb.onupgradeneeded = (event) => {
     store.createIndex('task', 'task', { unique: false });
     console.log("Created 'tasks' object store in IndexedDB");
   }
+  
 };
 
 idb.onsuccess = (event) => {
