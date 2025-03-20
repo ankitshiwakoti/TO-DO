@@ -21,45 +21,59 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // IndexedDB setup
   let idbStore;
-  const idb = indexedDB.open('todo-db', 1);
+  let dbVersion = 1;
+  
+  // Function to initialize IndexedDB
+  function initIndexedDB() {
+    return new Promise((resolve, reject) => {
+      const request = indexedDB.open('todo-db', dbVersion);
 
-  // Create stores when database is first created or version is updated
-  idb.onupgradeneeded = (event) => {
-    const db = event.target.result;
-    console.log('Upgrading IndexedDB...');
+      request.onerror = (event) => {
+        console.error('Error opening IndexedDB:', event.target.error);
+        reject(event.target.error);
+      };
 
-    // Create tasks store if it doesn't exist
-    if (!db.objectStoreNames.contains('tasks')) {
-      const store = db.createObjectStore('tasks', { keyPath: 'id' });
-      store.createIndex('task', 'task', { unique: false });
-      store.createIndex('timestamp', 'timestamp', { unique: false });
-      console.log("Created 'tasks' object store in IndexedDB");
-    }
+      request.onsuccess = (event) => {
+        idbStore = event.target.result;
+        console.log("IndexedDB opened successfully.");
+        resolve(idbStore);
+      };
 
-    // Create sync store if it doesn't exist
-    if (!db.objectStoreNames.contains('sync')) {
-      db.createObjectStore('sync', { keyPath: 'id' });
-      console.log("Created 'sync' object store in IndexedDB");
-    }
-  };
+      request.onupgradeneeded = (event) => {
+        const db = event.target.result;
+        console.log('Upgrading IndexedDB...');
 
-  // Handle successful database connection
-  idb.onsuccess = (event) => {
-    idbStore = event.target.result;
-    console.log("IndexedDB opened successfully.");
-    
-    // Verify stores exist before proceeding
-    if (idbStore.objectStoreNames.contains('tasks') && idbStore.objectStoreNames.contains('sync')) {
-      loadTasks();
-    } else {
-      console.error('Required IndexedDB stores not found. Please refresh the page.');
-    }
-  };
+        // Create tasks store
+        if (!db.objectStoreNames.contains('tasks')) {
+          const store = db.createObjectStore('tasks', { keyPath: 'id' });
+          store.createIndex('task', 'task', { unique: false });
+          store.createIndex('timestamp', 'timestamp', { unique: false });
+          console.log("Created 'tasks' object store in IndexedDB");
+        }
 
-  // Handle database errors
-  idb.onerror = (event) => {
-    console.error('Error opening IndexedDB:', event.target.error);
-  };
+        // Create sync store
+        if (!db.objectStoreNames.contains('sync')) {
+          db.createObjectStore('sync', { keyPath: 'id' });
+          console.log("Created 'sync' object store in IndexedDB");
+        }
+      };
+    });
+  }
+
+  // Initialize IndexedDB and start the app
+  initIndexedDB()
+    .then(() => {
+      // Verify stores exist
+      if (idbStore.objectStoreNames.contains('tasks') && idbStore.objectStoreNames.contains('sync')) {
+        console.log('IndexedDB stores verified');
+        loadTasks();
+      } else {
+        console.error('Required IndexedDB stores not found. Please refresh the page.');
+      }
+    })
+    .catch(error => {
+      console.error('Failed to initialize IndexedDB:', error);
+    });
 
   // Add task with offline support
   document.getElementById('add-task').addEventListener('click', async () => {
