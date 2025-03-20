@@ -20,13 +20,15 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
   // IndexedDB setup
-  const idb = indexedDB.open('todo-db', 1);
   let idbStore;
+  const idb = indexedDB.open('todo-db', 1);
 
+  // Create stores when database is first created or version is updated
   idb.onupgradeneeded = (event) => {
     const db = event.target.result;
+    console.log('Upgrading IndexedDB...');
 
-    // Create tasks store
+    // Create tasks store if it doesn't exist
     if (!db.objectStoreNames.contains('tasks')) {
       const store = db.createObjectStore('tasks', { keyPath: 'id' });
       store.createIndex('task', 'task', { unique: false });
@@ -34,19 +36,27 @@ document.addEventListener('DOMContentLoaded', () => {
       console.log("Created 'tasks' object store in IndexedDB");
     }
 
-    // Create sync store for tracking sync status
+    // Create sync store if it doesn't exist
     if (!db.objectStoreNames.contains('sync')) {
       db.createObjectStore('sync', { keyPath: 'id' });
       console.log("Created 'sync' object store in IndexedDB");
     }
   };
 
+  // Handle successful database connection
   idb.onsuccess = (event) => {
     idbStore = event.target.result;
     console.log("IndexedDB opened successfully.");
-    loadTasks();
+    
+    // Verify stores exist before proceeding
+    if (idbStore.objectStoreNames.contains('tasks') && idbStore.objectStoreNames.contains('sync')) {
+      loadTasks();
+    } else {
+      console.error('Required IndexedDB stores not found. Please refresh the page.');
+    }
   };
 
+  // Handle database errors
   idb.onerror = (event) => {
     console.error('Error opening IndexedDB:', event.target.error);
   };
@@ -65,6 +75,11 @@ document.addEventListener('DOMContentLoaded', () => {
       };
 
       try {
+        // Verify stores exist before proceeding
+        if (!idbStore.objectStoreNames.contains('tasks')) {
+          throw new Error('Tasks store not found');
+        }
+
         // Always store in IndexedDB first
         const tx = idbStore.transaction(['tasks'], 'readwrite');
         const store = tx.objectStore('tasks');
@@ -109,6 +124,11 @@ document.addEventListener('DOMContentLoaded', () => {
     taskList.innerHTML = '';
 
     try {
+      // Verify stores exist before proceeding
+      if (!idbStore.objectStoreNames.contains('tasks')) {
+        throw new Error('Tasks store not found');
+      }
+
       // Get all tasks from IndexedDB
       const tx = idbStore.transaction(['tasks'], 'readonly');
       const store = tx.objectStore('tasks');
