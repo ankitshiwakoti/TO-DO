@@ -18,38 +18,61 @@ document.addEventListener('DOMContentLoaded', () => {
   function initIndexedDB() {
     return new Promise((resolve, reject) => {
       console.log('Opening IndexedDB...');
-      const request = indexedDB.open('todo-db', dbVersion);
-
-      request.onerror = (event) => {
-        console.error('Error opening IndexedDB:', event.target.error);
-        reject(event.target.error);
+      
+      // Delete existing database to ensure clean state
+      const deleteRequest = indexedDB.deleteDatabase('todo-db');
+      deleteRequest.onerror = () => {
+        console.log('No existing database to delete');
+        openDatabase();
+      };
+      deleteRequest.onsuccess = () => {
+        console.log('Existing database deleted');
+        openDatabase();
       };
 
-      request.onsuccess = (event) => {
-        idbStore = event.target.result;
-        console.log("IndexedDB opened successfully.");
-        console.log('Available stores:', idbStore.objectStoreNames);
-        resolve(idbStore);
-      };
+      function openDatabase() {
+        const request = indexedDB.open('todo-db', dbVersion);
 
-      request.onupgradeneeded = (event) => {
-        const db = event.target.result;
-        console.log('Upgrading IndexedDB...');
+        request.onerror = (event) => {
+          console.error('Error opening IndexedDB:', event.target.error);
+          reject(event.target.error);
+        };
 
-        // Create tasks store
-        if (!db.objectStoreNames.contains('tasks')) {
-          const store = db.createObjectStore('tasks', { keyPath: 'id' });
-          store.createIndex('task', 'task', { unique: false });
-          store.createIndex('timestamp', 'timestamp', { unique: false });
-          console.log("Created 'tasks' object store in IndexedDB");
-        }
+        request.onsuccess = (event) => {
+          idbStore = event.target.result;
+          console.log("IndexedDB opened successfully.");
+          console.log('Available stores:', Array.from(idbStore.objectStoreNames));
+          
+          // Verify stores exist
+          if (!idbStore.objectStoreNames.contains('tasks') || !idbStore.objectStoreNames.contains('sync')) {
+            console.log('Stores not found, reopening with higher version');
+            dbVersion++;
+            idbStore.close();
+            openDatabase();
+          } else {
+            resolve(idbStore);
+          }
+        };
 
-        // Create sync store
-        if (!db.objectStoreNames.contains('sync')) {
-          db.createObjectStore('sync', { keyPath: 'id' });
-          console.log("Created 'sync' object store in IndexedDB");
-        }
-      };
+        request.onupgradeneeded = (event) => {
+          const db = event.target.result;
+          console.log('Upgrading IndexedDB...');
+
+          // Create tasks store
+          if (!db.objectStoreNames.contains('tasks')) {
+            const store = db.createObjectStore('tasks', { keyPath: 'id' });
+            store.createIndex('task', 'task', { unique: false });
+            store.createIndex('timestamp', 'timestamp', { unique: false });
+            console.log("Created 'tasks' object store in IndexedDB");
+          }
+
+          // Create sync store
+          if (!db.objectStoreNames.contains('sync')) {
+            db.createObjectStore('sync', { keyPath: 'id' });
+            console.log("Created 'sync' object store in IndexedDB");
+          }
+        };
+      }
     });
   }
 
@@ -83,9 +106,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
       // Store all tasks in IndexedDB in a single transaction
       if (tasks.length > 0) {
-        const tx = idbStore.transaction(['tasks'], 'readwrite');
-        const store = tx.objectStore('tasks');
-        await Promise.all(tasks.map(task => store.put(task)));
+        await handleIndexedDBTransaction('tasks', 'readwrite', async (store) => {
+          await Promise.all(tasks.map(task => store.put(task)));
+        });
         console.log('All Firebase tasks stored in IndexedDB');
       }
 
@@ -104,6 +127,11 @@ document.addEventListener('DOMContentLoaded', () => {
   // Function to handle IndexedDB transaction
   async function handleIndexedDBTransaction(storeName, mode, callback) {
     return new Promise((resolve, reject) => {
+      if (!idbStore.objectStoreNames.contains(storeName)) {
+        reject(new Error(`Store ${storeName} not found`));
+        return;
+      }
+
       const tx = idbStore.transaction([storeName], mode);
       const store = tx.objectStore(storeName);
       
@@ -118,13 +146,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initIndexedDB()
     .then(() => {
       console.log('IndexedDB initialization complete');
-      // Verify stores exist
-      if (idbStore.objectStoreNames.contains('tasks') && idbStore.objectStoreNames.contains('sync')) {
-        console.log('IndexedDB stores verified');
-        return initFirebase();
-      } else {
-        throw new Error('Required IndexedDB stores not found');
-      }
+      return initFirebase();
     })
     .then(() => {
       // Initialize app with both IndexedDB and Firebase ready
