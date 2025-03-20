@@ -2,6 +2,11 @@
 document.addEventListener('DOMContentLoaded', () => {
   console.log('DOM Content Loaded');
   
+  // Global variables
+  let idbStore;
+  let firestoreDb;
+  let dbVersion = 1;
+  
   // Check if Firebase is initialized
   if (!firebase.apps.length) {
     console.error('Firebase is not initialized!');
@@ -9,47 +14,6 @@ document.addEventListener('DOMContentLoaded', () => {
   }
   console.log('Firebase is initialized successfully');
 
-  // Firebase setup
-  const db = firebase.firestore();
-  console.log('Firestore instance created');
-
-  // Enable offline persistence for Firestore BEFORE any other Firestore operations
-  firebase.firestore().enablePersistence({ experimentalForceOwningTab: true })
-    .then(() => {
-      console.log('Offline persistence enabled successfully');
-      // Only test Firebase connection after persistence is enabled
-      return db.collection('tasks').get();
-    })
-    .then(snapshot => {
-      console.log('Firebase connection successful');
-      console.log('Number of tasks in Firebase:', snapshot.size);
-      snapshot.forEach(doc => {
-        console.log('Firebase task:', doc.id, doc.data());
-        // Store Firebase tasks in IndexedDB
-        const task = {
-          id: doc.id,
-          ...doc.data(),
-          syncStatus: 'synced'
-        };
-        // Store in IndexedDB
-        const tx = idbStore.transaction(['tasks'], 'readwrite');
-        const store = tx.objectStore('tasks');
-        store.put(task);
-      });
-    })
-    .catch((err) => {
-      if (err.code === 'failed-precondition') {
-        console.log("Offline persistence failed: multiple tabs open");
-      } else if (err.code === 'unimplemented') {
-        console.log("Offline persistence is not supported in this browser");
-      }
-      console.error('Firebase error:', err);
-    });
-
-  // IndexedDB setup
-  let idbStore;
-  let dbVersion = 1;
-  
   // Function to initialize IndexedDB
   function initIndexedDB() {
     return new Promise((resolve, reject) => {
@@ -89,20 +53,88 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // Initialize IndexedDB and start the app
+  // Function to initialize Firebase
+  async function initFirebase() {
+    try {
+      // Enable persistence first
+      await firebase.firestore().enablePersistence({ experimentalForceOwningTab: true });
+      console.log('Offline persistence enabled successfully');
+
+      // Then create Firestore instance
+      firestoreDb = firebase.firestore();
+      console.log('Firestore instance created');
+
+      // Test connection and load tasks
+      const snapshot = await firestoreDb.collection('tasks').get();
+      console.log('Firebase connection successful');
+      console.log('Number of tasks in Firebase:', snapshot.size);
+
+      // Store Firebase tasks in IndexedDB
+      const tasks = [];
+      snapshot.forEach(doc => {
+        console.log('Firebase task:', doc.id, doc.data());
+        const task = {
+          id: doc.id,
+          ...doc.data(),
+          syncStatus: 'synced'
+        };
+        tasks.push(task);
+      });
+
+      // Store all tasks in IndexedDB in a single transaction
+      if (tasks.length > 0) {
+        const tx = idbStore.transaction(['tasks'], 'readwrite');
+        const store = tx.objectStore('tasks');
+        await Promise.all(tasks.map(task => store.put(task)));
+        console.log('All Firebase tasks stored in IndexedDB');
+      }
+
+      return firestoreDb;
+    } catch (err) {
+      if (err.code === 'failed-precondition') {
+        console.log("Offline persistence failed: multiple tabs open");
+      } else if (err.code === 'unimplemented') {
+        console.log("Offline persistence is not supported in this browser");
+      }
+      console.error('Firebase initialization error:', err);
+      throw err;
+    }
+  }
+
+  // Function to handle IndexedDB transaction
+  async function handleIndexedDBTransaction(storeName, mode, callback) {
+    return new Promise((resolve, reject) => {
+      const tx = idbStore.transaction([storeName], mode);
+      const store = tx.objectStore(storeName);
+      
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+      
+      callback(store);
+    });
+  }
+
+  // Initialize both IndexedDB and Firebase
   initIndexedDB()
     .then(() => {
       console.log('IndexedDB initialization complete');
       // Verify stores exist
       if (idbStore.objectStoreNames.contains('tasks') && idbStore.objectStoreNames.contains('sync')) {
         console.log('IndexedDB stores verified');
-        loadTasks();
+        return initFirebase();
       } else {
-        console.error('Required IndexedDB stores not found. Available stores:', idbStore.objectStoreNames);
+        throw new Error('Required IndexedDB stores not found');
       }
     })
+    .then(() => {
+      // Initialize app with both IndexedDB and Firebase ready
+      loadTasks();
+    })
     .catch(error => {
-      console.error('Failed to initialize IndexedDB:', error);
+      console.error('Initialization error:', error);
+      // Show error to user
+      const taskList = document.getElementById('task-list');
+      taskList.innerHTML = '<li class="error">Error loading tasks. Please refresh the page.</li>';
     });
 
   // Add task with offline support
@@ -127,9 +159,9 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         // Always store in IndexedDB first
-        const tx = idbStore.transaction(['tasks'], 'readwrite');
-        const store = tx.objectStore('tasks');
-        await store.add(task);
+        await handleIndexedDBTransaction('tasks', 'readwrite', async (store) => {
+          await store.add(task);
+        });
         console.log('Task added to IndexedDB successfully');
 
         // If online, sync to Firebase
@@ -144,6 +176,7 @@ document.addEventListener('DOMContentLoaded', () => {
         loadTasks();
       } catch (error) {
         console.error("Error adding task: ", error);
+        alert('Error adding task. Please try again.');
       }
     }
   });
@@ -152,7 +185,7 @@ document.addEventListener('DOMContentLoaded', () => {
   async function syncToFirebase(task) {
     try {
       console.log('Syncing task to Firebase:', task);
-      await db.collection('tasks').doc(task.id).set({
+      await firestoreDb.collection('tasks').doc(task.id).set({
         task: task.task,
         completed: task.completed,
         timestamp: task.timestamp
@@ -160,12 +193,68 @@ document.addEventListener('DOMContentLoaded', () => {
       console.log('Task synced to Firebase successfully');
       
       // Update sync status in IndexedDB
-      const tx = idbStore.transaction(['sync'], 'readwrite');
-      const store = tx.objectStore('sync');
-      await store.put({ id: task.id, status: 'synced' });
+      await handleIndexedDBTransaction('sync', 'readwrite', async (store) => {
+        await store.put({ id: task.id, status: 'synced' });
+      });
       console.log('Sync status updated in IndexedDB');
     } catch (error) {
       console.error("Error syncing to Firebase: ", error);
+      throw error;
+    }
+  }
+
+  // Sync all pending tasks with Firebase
+  async function syncWithFirebase() {
+    try {
+      console.log('Starting Firebase sync...');
+      
+      // Get all tasks from IndexedDB
+      const tasks = await new Promise((resolve, reject) => {
+        const tx = idbStore.transaction(['tasks'], 'readonly');
+        const store = tx.objectStore('tasks');
+        const request = store.getAll();
+        
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+
+      // Get sync status
+      const syncStatus = await new Promise((resolve, reject) => {
+        const tx = idbStore.transaction(['sync'], 'readonly');
+        const store = tx.objectStore('sync');
+        const request = store.getAll();
+        
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+
+      // Sync pending tasks to Firebase
+      for (const task of tasks) {
+        const isSynced = syncStatus.some(s => s.id === task.id && s.status === 'synced');
+        if (!isSynced) {
+          await syncToFirebase(task);
+        }
+      }
+
+      // Get Firebase tasks and update IndexedDB
+      const snapshot = await firestoreDb.collection('tasks').get();
+      const firebaseTasks = [];
+      snapshot.forEach((doc) => {
+        firebaseTasks.push({
+          id: doc.id,
+          ...doc.data(),
+          syncStatus: 'synced'
+        });
+      });
+
+      // Update IndexedDB with Firebase tasks
+      await handleIndexedDBTransaction('tasks', 'readwrite', async (store) => {
+        await Promise.all(firebaseTasks.map(task => store.put(task)));
+      });
+
+      loadTasks(); // Reload tasks after sync
+    } catch (error) {
+      console.error("Error syncing with Firebase: ", error);
     }
   }
 
@@ -182,9 +271,15 @@ document.addEventListener('DOMContentLoaded', () => {
       }
 
       // Get all tasks from IndexedDB
-      const tx = idbStore.transaction(['tasks'], 'readonly');
-      const store = tx.objectStore('tasks');
-      const tasks = await store.getAll();
+      const tasks = await new Promise((resolve, reject) => {
+        const tx = idbStore.transaction(['tasks'], 'readonly');
+        const store = tx.objectStore('tasks');
+        const request = store.getAll();
+        
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+
       console.log('Tasks loaded from IndexedDB:', tasks);
 
       // Sort tasks by timestamp
@@ -196,6 +291,7 @@ document.addEventListener('DOMContentLoaded', () => {
       });
     } catch (error) {
       console.error("Error loading tasks: ", error);
+      taskList.innerHTML = '<li class="error">Error loading tasks. Please try again.</li>';
     }
   }
 
@@ -215,14 +311,14 @@ document.addEventListener('DOMContentLoaded', () => {
     newTask.querySelector('.complete-btn').addEventListener('click', async () => {
       try {
         // Update in IndexedDB
-        const tx = idbStore.transaction(['tasks'], 'readwrite');
-        const store = tx.objectStore('tasks');
-        taskData.completed = !taskData.completed;
-        await store.put(taskData);
+        await handleIndexedDBTransaction('tasks', 'readwrite', async (store) => {
+          taskData.completed = !taskData.completed;
+          await store.put(taskData);
+        });
 
         // If online, sync to Firebase
         if (navigator.onLine) {
-          await db.collection('tasks').doc(taskData.id).update({
+          await firestoreDb.collection('tasks').doc(taskData.id).update({
             completed: taskData.completed
           });
         }
@@ -230,6 +326,7 @@ document.addEventListener('DOMContentLoaded', () => {
         loadTasks();
       } catch (error) {
         console.error("Error updating task: ", error);
+        alert('Error updating task. Please try again.');
       }
     });
 
@@ -237,18 +334,19 @@ document.addEventListener('DOMContentLoaded', () => {
     newTask.querySelector('.delete-btn').addEventListener('click', async () => {
       try {
         // Delete from IndexedDB
-        const tx = idbStore.transaction(['tasks'], 'readwrite');
-        const store = tx.objectStore('tasks');
-        await store.delete(taskData.id);
+        await handleIndexedDBTransaction('tasks', 'readwrite', async (store) => {
+          await store.delete(taskData.id);
+        });
 
         // If online, delete from Firebase
         if (navigator.onLine) {
-          await db.collection('tasks').doc(taskData.id).delete();
+          await firestoreDb.collection('tasks').doc(taskData.id).delete();
         }
 
         loadTasks();
       } catch (error) {
         console.error("Error deleting task: ", error);
+        alert('Error deleting task. Please try again.');
       }
     });
 
