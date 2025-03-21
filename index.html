@@ -8,6 +8,7 @@
     <!-- PWA Meta Tags -->
     <meta name="theme-color" content="#4CAF50">
     <meta name="description" content="A Progressive Web App for managing tasks">
+    <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black">
     <meta name="apple-mobile-web-app-title" content="Todo">
@@ -27,7 +28,7 @@
         <h1>Todo List</h1>
         <div class="add-task">
             <input type="text" id="taskInput" placeholder="Add a new task...">
-            <button onclick="addTask()">Add Task</button>
+            <button type="button" onclick="addTask()">Add Task</button>
         </div>
         <ul id="taskList"></ul>
     </div>

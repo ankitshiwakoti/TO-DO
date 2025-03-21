@@ -9,6 +9,57 @@ document.addEventListener('DOMContentLoaded', () => {
   const taskList = document.getElementById('taskList');
   const taskInput = document.getElementById('taskInput');
 
+  // Function to add a task - defined at global scope
+  window.addTask = async function() {
+    if (!taskInput || !taskInput.value.trim()) return;
+
+    const task = {
+      id: Date.now().toString(),
+      task: taskInput.value.trim(),
+      completed: false,
+      timestamp: Date.now(),
+      syncStatus: 'pending'
+    };
+
+    try {
+      // Add to IndexedDB
+      const tx = idbStore.transaction(['tasks'], 'readwrite');
+      const store = tx.objectStore('tasks');
+      
+      // Wait for the add operation to complete
+      await new Promise((resolve, reject) => {
+        const request = store.add(task);
+        request.onsuccess = () => resolve();
+        request.onerror = () => reject(request.error);
+      });
+
+      // Add to Firebase if online
+      if (navigator.onLine) {
+        await firestoreDb.collection('tasks').doc(task.id).set({
+          task: task.task,
+          completed: task.completed,
+          timestamp: task.timestamp
+        });
+        
+        // Update sync status in a new transaction
+        const updateTx = idbStore.transaction(['tasks'], 'readwrite');
+        const updateStore = updateTx.objectStore('tasks');
+        task.syncStatus = 'synced';
+        await new Promise((resolve, reject) => {
+          const request = updateStore.put(task);
+          request.onsuccess = () => resolve();
+          request.onerror = () => reject(request.error);
+        });
+      }
+
+      // Clear input and reload tasks
+      taskInput.value = '';
+      await loadTasks();
+    } catch (error) {
+      console.error('Error adding task:', error);
+    }
+  };
+
   // Initialize Firebase if not already initialized
   if (!firebase.apps.length) {
     console.error('Firebase is not initialized!');
@@ -103,43 +154,6 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  // Function to add a task
-  async function addTask() {
-    if (!taskInput || !taskInput.value.trim()) return;
-
-    const task = {
-      id: Date.now().toString(),
-      task: taskInput.value.trim(),
-      completed: false,
-      timestamp: Date.now(),
-      syncStatus: 'pending'
-    };
-
-    try {
-      // Add to IndexedDB
-      const tx = idbStore.transaction(['tasks'], 'readwrite');
-      const store = tx.objectStore('tasks');
-      await store.add(task);
-
-      // Add to Firebase if online
-      if (navigator.onLine) {
-        await firestoreDb.collection('tasks').doc(task.id).set({
-          task: task.task,
-          completed: task.completed,
-          timestamp: task.timestamp
-        });
-        task.syncStatus = 'synced';
-        await store.put(task);
-      }
-
-      // Clear input and reload tasks
-      taskInput.value = '';
-      await loadTasks();
-    } catch (error) {
-      console.error('Error adding task:', error);
-    }
-  }
-
   // Function to toggle task completion
   async function toggleTask(taskId) {
     try {
@@ -195,41 +209,54 @@ document.addEventListener('DOMContentLoaded', () => {
     try {
       const tx = idbStore.transaction(['tasks'], 'readonly');
       const store = tx.objectStore('tasks');
-      const tasks = await store.getAll();
-
-      // Sort tasks by timestamp
-      tasks.sort((a, b) => b.timestamp - a.timestamp);
-
-      // Clear existing tasks
-      taskList.innerHTML = '';
-
-      // Add tasks to the list
-      tasks.forEach(task => {
-        const li = document.createElement('li');
-        li.className = task.completed ? 'completed' : '';
-        
-        const checkbox = document.createElement('input');
-        checkbox.type = 'checkbox';
-        checkbox.className = 'task-checkbox';
-        checkbox.checked = task.completed;
-        checkbox.addEventListener('change', () => toggleTask(task.id));
-
-        const taskText = document.createElement('span');
-        taskText.className = 'task-text';
-        taskText.textContent = task.task;
-
-        const deleteBtn = document.createElement('button');
-        deleteBtn.className = 'delete-btn';
-        deleteBtn.textContent = 'Delete';
-        deleteBtn.addEventListener('click', () => deleteTask(task.id));
-
-        li.appendChild(checkbox);
-        li.appendChild(taskText);
-        li.appendChild(deleteBtn);
-        taskList.appendChild(li);
+      
+      // Get all tasks using a Promise
+      const tasks = await new Promise((resolve, reject) => {
+        const request = store.getAll();
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
       });
+
+      // Ensure tasks is an array before sorting
+      if (Array.isArray(tasks)) {
+        // Sort tasks by timestamp
+        tasks.sort((a, b) => b.timestamp - a.timestamp);
+
+        // Clear existing tasks
+        taskList.innerHTML = '';
+
+        // Add tasks to the list
+        tasks.forEach(task => {
+          const li = document.createElement('li');
+          li.className = task.completed ? 'completed' : '';
+          
+          const checkbox = document.createElement('input');
+          checkbox.type = 'checkbox';
+          checkbox.className = 'task-checkbox';
+          checkbox.checked = task.completed;
+          checkbox.addEventListener('change', () => toggleTask(task.id));
+
+          const taskText = document.createElement('span');
+          taskText.className = 'task-text';
+          taskText.textContent = task.task;
+
+          const deleteBtn = document.createElement('button');
+          deleteBtn.className = 'delete-btn';
+          deleteBtn.textContent = 'Delete';
+          deleteBtn.addEventListener('click', () => deleteTask(task.id));
+
+          li.appendChild(checkbox);
+          li.appendChild(taskText);
+          li.appendChild(deleteBtn);
+          taskList.appendChild(li);
+        });
+      } else {
+        console.error('Tasks is not an array:', tasks);
+        taskList.innerHTML = '<li class="error">Error loading tasks. Please refresh the page.</li>';
+      }
     } catch (error) {
       console.error('Error loading tasks:', error);
+      taskList.innerHTML = '<li class="error">Error loading tasks. Please refresh the page.</li>';
     }
   }
 
