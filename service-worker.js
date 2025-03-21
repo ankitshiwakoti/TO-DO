@@ -1,31 +1,33 @@
-const CACHE_NAME = 'todo-list-cache-v1';
+const CACHE_NAME = 'todo-pwa-v1';
 const urlsToCache = [
   '/',
   '/index.html',
-  '/style.css',
+  '/styles.css',
   '/script.js',
-  '/firebaseConfig.js',
-  '/icon.png',
+  '/manifest.json',
+  '/icons/icon-192x192.png',
+  '/icons/icon-512x512.png',
   'https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js',
   'https://www.gstatic.com/firebasejs/8.10.0/firebase-firestore.js'
 ];
 
-// Install event - cache resources
-self.addEventListener('install', (event) => {
+// Install Service Worker
+self.addEventListener('install', event => {
   event.waitUntil(
     caches.open(CACHE_NAME)
-      .then((cache) => {
+      .then(cache => {
+        console.log('Opened cache');
         return cache.addAll(urlsToCache);
       })
   );
 });
 
-// Activate event - clean up old caches
-self.addEventListener('activate', (event) => {
+// Activate Service Worker
+self.addEventListener('activate', event => {
   event.waitUntil(
-    caches.keys().then((cacheNames) => {
+    caches.keys().then(cacheNames => {
       return Promise.all(
-        cacheNames.map((cacheName) => {
+        cacheNames.map(cacheName => {
           if (cacheName !== CACHE_NAME) {
             return caches.delete(cacheName);
           }
@@ -35,8 +37,8 @@ self.addEventListener('activate', (event) => {
   );
 });
 
-// Fetch event - handle offline requests
-self.addEventListener('fetch', (event) => {
+// Fetch Event
+self.addEventListener('fetch', event => {
   // Skip cross-origin requests
   if (!event.request.url.startsWith(self.location.origin)) {
     return;
@@ -44,7 +46,7 @@ self.addEventListener('fetch', (event) => {
 
   event.respondWith(
     caches.match(event.request)
-      .then((cachedResponse) => {
+      .then(cachedResponse => {
         // Return cached response if found
         if (cachedResponse) {
           return cachedResponse;
@@ -54,7 +56,7 @@ self.addEventListener('fetch', (event) => {
         const fetchRequest = event.request.clone();
 
         // Make network request and cache the response
-        return fetch(fetchRequest).then((response) => {
+        return fetch(fetchRequest).then(response => {
           // Check if we received a valid response
           if (!response || response.status !== 200 || response.type !== 'basic') {
             return response;
@@ -64,7 +66,7 @@ self.addEventListener('fetch', (event) => {
           const responseToCache = response.clone();
 
           caches.open(CACHE_NAME)
-            .then((cache) => {
+            .then(cache => {
               cache.put(event.request, responseToCache);
             });
 
