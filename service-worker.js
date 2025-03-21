@@ -1,37 +1,31 @@
-const CACHE_NAME = 'todo-app-v1';
+const CACHE_NAME = 'todo-list-cache-v1';
 const urlsToCache = [
   '/',
   '/index.html',
   '/style.css',
   '/script.js',
-  '/manifest.json',
-  '/icons/icon.png',
-  '/icons/icon.png',
-  '/icons/icon.png',
-  '/icons/icon.png',
-  '/icons/icon.png',
-  '/icons/icon.png',
-  '/icons/icon.png',
-  '/icons/icon.png'
+  '/firebaseConfig.js',
+  '/icon.png',
+  'https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js',
+  'https://www.gstatic.com/firebasejs/8.10.0/firebase-firestore.js'
 ];
 
 // Install event - cache resources
-self.addEventListener('install', event => {
+self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME)
-      .then(cache => {
-        console.log('Opened cache');
+      .then((cache) => {
         return cache.addAll(urlsToCache);
       })
   );
 });
 
 // Activate event - clean up old caches
-self.addEventListener('activate', event => {
+self.addEventListener('activate', (event) => {
   event.waitUntil(
-    caches.keys().then(cacheNames => {
+    caches.keys().then((cacheNames) => {
       return Promise.all(
-        cacheNames.map(cacheName => {
+        cacheNames.map((cacheName) => {
           if (cacheName !== CACHE_NAME) {
             return caches.delete(cacheName);
           }
@@ -41,22 +35,27 @@ self.addEventListener('activate', event => {
   );
 });
 
-// Fetch event - serve from cache, fallback to network
-self.addEventListener('fetch', event => {
+// Fetch event - handle offline requests
+self.addEventListener('fetch', (event) => {
+  // Skip cross-origin requests
+  if (!event.request.url.startsWith(self.location.origin)) {
+    return;
+  }
+
   event.respondWith(
     caches.match(event.request)
-      .then(response => {
+      .then((cachedResponse) => {
         // Return cached response if found
-        if (response) {
-          return response;
+        if (cachedResponse) {
+          return cachedResponse;
         }
 
         // Clone the request because it can only be used once
         const fetchRequest = event.request.clone();
 
         // Make network request and cache the response
-        return fetch(fetchRequest).then(response => {
-          // Check if response is valid
+        return fetch(fetchRequest).then((response) => {
+          // Check if we received a valid response
           if (!response || response.status !== 200 || response.type !== 'basic') {
             return response;
           }
@@ -65,7 +64,7 @@ self.addEventListener('fetch', event => {
           const responseToCache = response.clone();
 
           caches.open(CACHE_NAME)
-            .then(cache => {
+            .then((cache) => {
               cache.put(event.request, responseToCache);
             });
 

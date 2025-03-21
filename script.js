@@ -19,38 +19,60 @@ document.addEventListener('DOMContentLoaded', () => {
     return new Promise((resolve, reject) => {
       console.log('Opening IndexedDB...');
       
-      const request = indexedDB.open('todo-db', 1);
-
-      request.onerror = (event) => {
-        console.error('Error opening IndexedDB:', event.target.error);
-        reject(event.target.error);
+      // Delete existing database to ensure clean state
+      const deleteRequest = indexedDB.deleteDatabase('todo-db');
+      deleteRequest.onerror = () => {
+        console.log('No existing database to delete');
+        openDatabase();
+      };
+      deleteRequest.onsuccess = () => {
+        console.log('Existing database deleted');
+        openDatabase();
       };
 
-      request.onsuccess = (event) => {
-        idbStore = event.target.result;
-        console.log("IndexedDB opened successfully.");
-        console.log('Available stores:', idbStore.objectStoreNames);
-        resolve(idbStore);
-      };
+      function openDatabase() {
+        const request = indexedDB.open('todo-db', dbVersion);
 
-      request.onupgradeneeded = (event) => {
-        const db = event.target.result;
-        console.log('Upgrading IndexedDB...');
+        request.onerror = (event) => {
+          console.error('Error opening IndexedDB:', event.target.error);
+          reject(event.target.error);
+        };
 
-        // Create tasks store
-        if (!db.objectStoreNames.contains('tasks')) {
-          const store = db.createObjectStore('tasks', { keyPath: 'id' });
-          store.createIndex('task', 'task', { unique: false });
-          store.createIndex('timestamp', 'timestamp', { unique: false });
-          console.log("Created 'tasks' object store in IndexedDB");
-        }
+        request.onsuccess = (event) => {
+          idbStore = event.target.result;
+          console.log("IndexedDB opened successfully.");
+          console.log('Available stores:', Array.from(idbStore.objectStoreNames));
+          
+          // Verify stores exist
+          if (!idbStore.objectStoreNames.contains('tasks') || !idbStore.objectStoreNames.contains('sync')) {
+            console.log('Stores not found, reopening with higher version');
+            dbVersion++;
+            idbStore.close();
+            openDatabase();
+          } else {
+            resolve(idbStore);
+          }
+        };
 
-        // Create sync store
-        if (!db.objectStoreNames.contains('sync')) {
-          db.createObjectStore('sync', { keyPath: 'id' });
-          console.log("Created 'sync' object store in IndexedDB");
-        }
-      };
+        request.onupgradeneeded = (event) => {
+          const db = event.target.result;
+          console.log('Upgrading IndexedDB...');
+
+          // Create tasks store
+          if (!db.objectStoreNames.contains('tasks')) {
+            const store = db.createObjectStore('tasks', { keyPath: 'id' });
+            store.createIndex('task', 'task', { unique: false });
+            store.createIndex('timestamp', 'timestamp', { unique: false });
+            console.log("Created 'tasks' object store in IndexedDB");
+          }
+
+          // Create sync store
+          if (!db.objectStoreNames.contains('sync')) {
+            db.createObjectStore('sync', { keyPath: 'id' });
+            console.log("Created 'sync' object store in IndexedDB");
+          }
+        };
+      }
     });
   }
 
