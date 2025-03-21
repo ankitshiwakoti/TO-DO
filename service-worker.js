@@ -1,12 +1,16 @@
 const CACHE_NAME = 'todo-pwa-v1';
-const urlsToCache = [
-  '/',
-  '/index.html',
-  '/styles.css',
-  '/script.js',
-  '/manifest.json',
-  '/icons/icon-192x192.png',
-  '/icons/icon-512x512.png',
+const STATIC_CACHE = 'static-cache-v1';
+const DYNAMIC_CACHE = 'dynamic-cache-v1';
+
+const STATIC_ASSETS = [
+  './',
+  './index.html',
+  './styles.css',
+  './script.js',
+  './manifest.json',
+  './firebaseConfig.js',
+  './icons/icon-192x192.png',
+  './icons/icon-512x512.png',
   'https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js',
   'https://www.gstatic.com/firebasejs/8.10.0/firebase-firestore.js'
 ];
@@ -14,12 +18,15 @@ const urlsToCache = [
 // Install Service Worker
 self.addEventListener('install', event => {
   event.waitUntil(
-    caches.open(CACHE_NAME)
-      .then(cache => {
-        console.log('Opened cache');
-        return cache.addAll(urlsToCache);
-      })
+    Promise.all([
+      caches.open(STATIC_CACHE).then(cache => {
+        console.log('Caching static assets');
+        return cache.addAll(STATIC_ASSETS);
+      }),
+      caches.open(DYNAMIC_CACHE)
+    ])
   );
+  self.skipWaiting();
 });
 
 // Activate Service Worker
@@ -27,51 +34,58 @@ self.addEventListener('activate', event => {
   event.waitUntil(
     caches.keys().then(cacheNames => {
       return Promise.all(
-        cacheNames.map(cacheName => {
-          if (cacheName !== CACHE_NAME) {
-            return caches.delete(cacheName);
-          }
-        })
+        cacheNames
+          .filter(name => name !== STATIC_CACHE && name !== DYNAMIC_CACHE)
+          .map(name => caches.delete(name))
       );
     })
   );
+  self.clients.claim();
 });
 
-// Fetch Event
+// Fetch Event - Network First with Cache Fallback for API, Cache First for Static Assets
 self.addEventListener('fetch', event => {
-  // Skip cross-origin requests
-  if (!event.request.url.startsWith(self.location.origin)) {
+  const url = new URL(event.request.url);
+  
+  // Handle static assets - Cache First
+  if (STATIC_ASSETS.includes(url.pathname) || event.request.url.includes('icon')) {
+    event.respondWith(
+      caches.match(event.request)
+        .then(response => response || fetch(event.request))
+    );
     return;
   }
 
+  // Handle API requests - Network First with Cache Fallback
   event.respondWith(
-    caches.match(event.request)
-      .then(cachedResponse => {
-        // Return cached response if found
-        if (cachedResponse) {
-          return cachedResponse;
-        }
-
-        // Clone the request because it can only be used once
-        const fetchRequest = event.request.clone();
-
-        // Make network request and cache the response
-        return fetch(fetchRequest).then(response => {
-          // Check if we received a valid response
-          if (!response || response.status !== 200 || response.type !== 'basic') {
-            return response;
-          }
-
-          // Clone the response because it can only be used once
-          const responseToCache = response.clone();
-
-          caches.open(CACHE_NAME)
-            .then(cache => {
-              cache.put(event.request, responseToCache);
-            });
-
-          return response;
-        });
+    fetch(event.request)
+      .then(response => {
+        // Clone the response before using it
+        const responseClone = response.clone();
+        
+        // Open dynamic cache and store the response
+        caches.open(DYNAMIC_CACHE)
+          .then(cache => {
+            cache.put(event.request, responseClone);
+          });
+        
+        return response;
+      })
+      .catch(() => {
+        // If network fails, try to get from cache
+        return caches.match(event.request)
+          .then(cachedResponse => {
+            if (cachedResponse) {
+              return cachedResponse;
+            }
+            // If no cache exists, return a default offline response
+            if (event.request.url.includes('tasks')) {
+              return new Response(JSON.stringify([]), {
+                headers: { 'Content-Type': 'application/json' }
+              });
+            }
+            return new Response('Offline');
+          });
       })
   );
 });

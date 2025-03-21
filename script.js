@@ -8,6 +8,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const dbVersion = 1;
   const taskList = document.getElementById('taskList');
   const taskInput = document.getElementById('taskInput');
+  let isOnline = navigator.onLine;
 
   // Initialize Firebase if not already initialized
   if (!firebase.apps.length) {
@@ -22,6 +23,15 @@ document.addEventListener('DOMContentLoaded', () => {
       request.onsuccess = () => resolve(request.result);
       request.onerror = () => reject(request.error);
     });
+  }
+
+  // Function to show status message
+  function showStatus(message, isError = false) {
+    const statusDiv = document.createElement('div');
+    statusDiv.className = `status-message ${isError ? 'error' : 'success'}`;
+    statusDiv.textContent = message;
+    document.querySelector('.container').insertBefore(statusDiv, taskList);
+    setTimeout(() => statusDiv.remove(), 3000);
   }
 
   // Function to initialize IndexedDB
@@ -82,18 +92,25 @@ document.addEventListener('DOMContentLoaded', () => {
       await handleRequest(store.add(task));
 
       // Add to Firebase if online
-      if (navigator.onLine) {
-        await firestoreDb.collection('tasks').doc(task.id).set({
-          task: task.task,
-          completed: task.completed,
-          timestamp: task.timestamp
-        });
+      if (isOnline) {
+        try {
+          await firestoreDb.collection('tasks').doc(task.id).set({
+            task: task.task,
+            completed: task.completed,
+            timestamp: task.timestamp
+          });
 
-        // Update sync status in a new transaction
-        const updateTx = idbStore.transaction(['tasks'], 'readwrite');
-        const updateStore = updateTx.objectStore('tasks');
-        task.syncStatus = 'synced';
-        await handleRequest(updateStore.put(task));
+          // Update sync status in a new transaction
+          const updateTx = idbStore.transaction(['tasks'], 'readwrite');
+          const updateStore = updateTx.objectStore('tasks');
+          task.syncStatus = 'synced';
+          await handleRequest(updateStore.put(task));
+        } catch (error) {
+          console.error('Error syncing with Firebase:', error);
+          showStatus('Task saved locally, will sync when online', false);
+        }
+      } else {
+        showStatus('Task saved locally, will sync when online', false);
       }
 
       // Clear input and reload tasks
@@ -101,6 +118,7 @@ document.addEventListener('DOMContentLoaded', () => {
       await loadTasks();
     } catch (error) {
       console.error('Error adding task:', error);
+      showStatus('Error adding task', true);
     }
   }
   // Make addTask available globally
@@ -279,34 +297,60 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // Online/Offline event handlers
+  // Update online/offline event handlers
   window.addEventListener('online', async () => {
+    isOnline = true;
+    showStatus('Back online, syncing tasks...', false);
     console.log('Back online, syncing tasks...');
-    const tx = idbStore.transaction(['tasks'], 'readonly');
-    const store = tx.objectStore('tasks');
-    const tasks = await handleRequest(store.getAll());
     
-    for (const task of tasks) {
-      if (task.syncStatus === 'pending') {
-        try {
-          await firestoreDb.collection('tasks').doc(task.id).set({
-            task: task.task,
-            completed: task.completed,
-            timestamp: task.timestamp
-          });
-          
-          const updateTx = idbStore.transaction(['tasks'], 'readwrite');
-          const updateStore = updateTx.objectStore('tasks');
-          task.syncStatus = 'synced';
-          await handleRequest(updateStore.put(task));
-        } catch (error) {
-          console.error('Error syncing task:', error);
+    try {
+      const tx = idbStore.transaction(['tasks'], 'readonly');
+      const store = tx.objectStore('tasks');
+      const tasks = await handleRequest(store.getAll());
+      
+      for (const task of tasks) {
+        if (task.syncStatus === 'pending') {
+          try {
+            await firestoreDb.collection('tasks').doc(task.id).set({
+              task: task.task,
+              completed: task.completed,
+              timestamp: task.timestamp
+            });
+            
+            const updateTx = idbStore.transaction(['tasks'], 'readwrite');
+            const updateStore = updateTx.objectStore('tasks');
+            task.syncStatus = 'synced';
+            await handleRequest(updateStore.put(task));
+          } catch (error) {
+            console.error('Error syncing task:', error);
+            showStatus('Error syncing some tasks', true);
+          }
         }
       }
+      showStatus('All tasks synced successfully', false);
+      await loadTasks();
+    } catch (error) {
+      console.error('Error during sync:', error);
+      showStatus('Error syncing tasks', true);
     }
   });
 
   window.addEventListener('offline', () => {
+    isOnline = false;
+    showStatus('App is offline, changes will be saved locally', false);
     console.log('App is offline, changes will be synced when back online');
   });
+
+  // Register service worker
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('./service-worker.js')
+        .then(registration => {
+          console.log('ServiceWorker registration successful');
+        })
+        .catch(err => {
+          console.error('ServiceWorker registration failed: ', err);
+        });
+    });
+  }
 });
