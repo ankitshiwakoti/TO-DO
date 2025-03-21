@@ -9,7 +9,7 @@
     "orientation": "portrait",
     "icons": [
       {
-        "src": "icons/icon.png",
+        "src": "icon/icon.png",
         "sizes": "72x72",
         "type": "image/png",
         "purpose": "any maskable"
@@ -32,7 +32,7 @@
         "short_name": "New Task",
         "description": "Create a new todo task",
         "url": "/?action=new",
-        "icons": [{ "src": "icons/add.png", "sizes": "192x192" }]
+        "icons": [{ "src": "icon/icon.png", "sizes": "192x192" }]
       }
     ]
   }
