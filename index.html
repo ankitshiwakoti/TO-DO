@@ -3,28 +3,19 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="theme-color" content="#4CAF50">
-    <meta name="description" content="A Progressive Web App for managing tasks">
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black">
-    <meta name="apple-mobile-web-app-title" content="TO-DO">
-    <link rel="manifest" href="/manifest.json">
-    <link rel="apple-touch-icon" href="/icons/icon-192x192.png">
-    <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192x192.png">
-    <link rel="icon" type="image/png" sizes="512x512" href="/icons/icon-512x512.png">
-    <title>TO-DO PWA</title>
-    <link rel="stylesheet" href="style.css">
+    <title>Interactive Todo List</title>
     <!-- Firebase SDK -->
     <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
     <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-firestore.js"></script>
     <script src="firebaseConfig.js"></script>
+    <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <div class="container">
-        <h1>TO-DO List</h1>
-        <div class="input-container">
+    <div class="todo-container">
+        <h1>Todo List</h1>
+        <div class="todo-input">
             <input type="text" id="new-task" placeholder="Add a new task...">
-            <button id="add-task">Addn</button>
+            <button id="add-task">Add</button>
         </div>
         <ul id="task-list"></ul>
     </div>
